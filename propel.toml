@@ -1,0 +1,42 @@
+# worry-free-crab (local-ci) propel contract
+# Defines how Propel should orchestrate checks for this repo
+
+[repo]
+owner = "lornu-ai"
+name = "worry-free-crab"
+description = "Lightweight local CI runner (Rust rewrite)"
+
+# Hermetic checks via Nix flake
+[[check]]
+name = "fmt"
+description = "Rust code formatting"
+command = "nix build .#checks.x86_64-linux.fmt"
+timeout_seconds = 120
+required = true
+
+[[check]]
+name = "clippy"
+description = "Clippy linting with warnings-as-errors"
+command = "nix build .#checks.x86_64-linux.clippy"
+timeout_seconds = 600
+required = true
+
+[[check]]
+name = "test"
+description = "Cargo test suite"
+command = "nix build .#checks.x86_64-linux.test"
+timeout_seconds = 1200
+required = true
+
+[oci]
+enabled = false
+
+[policy]
+requires_human_approval = false
+secrets_scope = "ci/repos/lornu-ai/worry-free-crab"
+allowed_orgs = ["lornu-ai", "stevedores-org"]
+allowed_refs = ["refs/heads/main"]
+
+[performance]
+cache = "attic"
+cache_url = "https://attic.lornu.ai"
