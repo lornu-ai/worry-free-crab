@@ -27,5 +27,34 @@
             pkgs.git
           ];
         };
+
+        checks = {
+          fmt = pkgs.runCommand "check-fmt" {
+            buildInputs = [ rustToolchain pkgs.pkg-config ];
+            src = self;
+          } ''
+            cd $src
+            cargo fmt --all -- --check
+            touch $out
+          '';
+
+          clippy = pkgs.runCommand "check-clippy" {
+            buildInputs = [ rustToolchain pkgs.pkg-config ];
+            src = self;
+          } ''
+            cd $src
+            cargo clippy --workspace --all-targets -- -D warnings
+            touch $out
+          '';
+
+          test = pkgs.runCommand "check-test" {
+            buildInputs = [ rustToolchain pkgs.pkg-config ];
+            src = self;
+          } ''
+            cd $src
+            cargo test --workspace
+            touch $out
+          '';
+        };
       });
 }
