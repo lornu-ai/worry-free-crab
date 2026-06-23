@@ -1434,13 +1434,16 @@ mod tests {
     use local_ci_core::Stage;
     use std::fs::File;
 
+    static TEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn make_temp_dir() -> std::path::PathBuf {
         let mut path = std::env::temp_dir();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        path.push(format!("local_ci_test_{}", nanos));
+        let seq = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        path.push(format!("local_ci_test_{}_{}", nanos, seq));
         std::fs::create_dir_all(&path).unwrap();
         path
     }
