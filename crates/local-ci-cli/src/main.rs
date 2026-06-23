@@ -151,22 +151,54 @@ fn main() {
         }
     }
 
-    // 2. Remote execution not supported check
-    if cli.remote.is_some() || cli.remote_host.is_some() || cli.list_remote_hosts {
+    // 2. Verify that .local-ci.toml exists
+    let config_file_path = cwd.join(".local-ci.toml");
+    if !config_file_path.exists() {
         local_ci_report::errorf!(
-            "Error: Remote SSH execution is not supported in the Rust rewrite.\n"
+            "Error: Config file not found at {}.\n\
+             Please run `local-ci init` to initialize the project configuration.\n",
+            config_file_path.display()
         );
         std::process::exit(1);
     }
 
+    let need_remote_cfg =
+        cli.remote.is_some() || cli.remote_host.is_some() || cli.list_remote_hosts;
+
     // 3. Load config & workspace
-    let mut config = match local_ci_detect::load_config(&cwd, false) {
+    let mut config = match local_ci_detect::load_config(&cwd, need_remote_cfg) {
         Ok(cfg) => cfg,
         Err(e) => {
             local_ci_report::errorf!("Failed to load config: {}\n", e);
             std::process::exit(1);
         }
     };
+
+    if cli.list_remote_hosts {
+        if config.hosts.is_empty() {
+            println!("No remote host presets defined. Add [hosts.<name>] to .local-ci-remote.toml");
+            return;
+        }
+        let mut sorted_host_names: Vec<String> = config.hosts.keys().cloned().collect();
+        sorted_host_names.sort();
+        for name in sorted_host_names {
+            if let Some(h) = config.hosts.get(&name) {
+                let norm = config.normalize_remote_host(&name, h);
+                let mut line = format!("{}  host={}", name, norm.host);
+                if !norm.session.is_empty() {
+                    line.push_str(&format!("  session={}", norm.session));
+                }
+                if !norm.remote_dir.is_empty() {
+                    line.push_str(&format!("  remote_dir={}", norm.remote_dir));
+                }
+                if !norm.description.is_empty() {
+                    line.push_str(&format!("  # {}", norm.description));
+                }
+                println!("{}", line);
+            }
+        }
+        return;
+    }
 
     let ws = local_ci_detect::detect_workspace(&cwd).ok();
 
@@ -338,7 +370,146 @@ fn main() {
     let mut results = Vec::new();
     let start_time = std::time::Instant::now();
 
-    if let Some(concurrency) = cli.parallel {
+    let mut remote_target = cli.remote.clone();
+    let mut remote_session = cli.session.clone();
+    let mut remote_dir = cli.remote_dir.clone();
+
+    if let Some(preset_name) = &cli.remote_host {
+        if let Some(host_cfg) = config.hosts.get(preset_name) {
+            let norm = config.normalize_remote_host(preset_name, host_cfg);
+            remote_target = Some(norm.host);
+            if !norm.session.is_empty() {
+                remote_session = norm.session;
+            }
+            if !norm.remote_dir.is_empty() {
+                remote_dir = Some(norm.remote_dir);
+            }
+        } else {
+            local_ci_report::errorf!("Remote host preset '{}' not found in config\n", preset_name);
+            std::process::exit(1);
+        }
+    }
+
+    if let Some(remote_host) = remote_target {
+        if cli.parallel.is_some() {
+            local_ci_report::errorf!(
+                "Cannot use --parallel and --remote together; run remote stages sequentially\n"
+            );
+            std::process::exit(1);
+        }
+
+        let work_dir = match remote_dir {
+            Some(dir) => dir,
+            None => {
+                let base = cwd
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("project");
+                format!("/tmp/{}", base)
+            }
+        };
+
+        let re = local_ci_exec::RemoteExecutor::new(
+            remote_host.clone(),
+            remote_session,
+            work_dir,
+            std::time::Duration::from_secs(cli.remote_timeout as u64),
+            cli.verbose,
+        );
+
+        local_ci_report::printf!("🔄 Synchronizing local workspace to remote...\n");
+        if let Err(e) = re.sync_workspace(cwd.to_str().unwrap_or("."), &config.cache.skip_dirs) {
+            local_ci_report::errorf!("Failed to sync workspace to remote: {}\n", e);
+            std::process::exit(1);
+        }
+
+        local_ci_report::printf!(
+            "🚀 Running local CI pipeline remotely on {}...\n\n",
+            remote_host
+        );
+
+        if let Err(e) = re.ensure_remote_session() {
+            local_ci_report::errorf!("Failed to initialize remote tmux session: {}\n", e);
+            std::process::exit(1);
+        }
+
+        for stage in &stages_to_run {
+            let stage_start = std::time::Instant::now();
+            let stage_hash = stage_hashes.get(&stage.name).unwrap_or(&source_hash);
+
+            if !no_cache && local_ci_cache::cache_hit(&cache, stage, stage_hash) {
+                if cli.verbose {
+                    local_ci_report::printf!("✓ {} (cached)\n", stage.name);
+                }
+                results.push(local_ci_exec::Result {
+                    name: stage.name.clone(),
+                    command: String::new(),
+                    status: "pass".to_string(),
+                    duration: std::time::Duration::ZERO,
+                    output: String::new(),
+                    cache_hit: true,
+                    error: None,
+                });
+                continue;
+            }
+
+            local_ci_report::printf!("::group::{}\n", stage.name);
+
+            if stage.command.is_none() || stage.command.as_ref().unwrap().is_empty() {
+                local_ci_report::printf!("Error: Stage has no command defined\n");
+                local_ci_report::printf!("::endgroup::\n");
+                local_ci_report::errorf!("✗ {} (failed)\n", stage.name);
+                results.push(local_ci_exec::Result {
+                    name: stage.name.clone(),
+                    command: String::new(),
+                    status: "fail".to_string(),
+                    duration: std::time::Duration::ZERO,
+                    output: String::new(),
+                    cache_hit: false,
+                    error: Some("no command defined".to_string()),
+                });
+                if cli.fail_fast {
+                    break;
+                }
+                continue;
+            }
+
+            if cli.verbose {
+                let cmd_str = stage.command.as_ref().unwrap().join(" ");
+                local_ci_report::printf!("$ {}\n", cmd_str);
+            }
+
+            let mut r = re.execute_stage(stage);
+            r.duration = stage_start.elapsed();
+
+            if r.status == "fail" {
+                if !r.output.is_empty() {
+                    local_ci_report::printf!("{}\n", r.output);
+                } else if let Some(err) = &r.error {
+                    local_ci_report::printf!("Error: {}\n", err);
+                }
+                local_ci_report::printf!("::endgroup::\n");
+                local_ci_report::errorf!("✗ {} (failed)\n", stage.name);
+                results.push(r);
+                if cli.fail_fast {
+                    break;
+                }
+            } else {
+                if cli.verbose && !r.output.is_empty() {
+                    local_ci_report::printf!("{}\n", r.output);
+                }
+                local_ci_report::printf!("::endgroup::\n");
+                local_ci_report::successf!("✓ {} ({}ms)\n", stage.name, r.duration.as_millis());
+                results.push(r);
+
+                // Update cache
+                cache.insert(
+                    stage.name.clone(),
+                    local_ci_cache::cache_key_for_stage(stage, stage_hash),
+                );
+            }
+        }
+    } else if let Some(concurrency) = cli.parallel {
         let runner = local_ci_exec::ParallelRunner {
             stages: stages_to_run,
             concurrency,
@@ -633,6 +804,13 @@ fn create_pre_commit_hook(
 }
 
 fn cmd_serve(cwd: &Path) -> Result<(), String> {
+    let config_file_path = cwd.join(".local-ci.toml");
+    if !config_file_path.exists() {
+        return Err(format!(
+            "Config file not found at {}. Please run `local-ci init` to initialize the project configuration.",
+            config_file_path.display()
+        ));
+    }
     let config = local_ci_detect::load_config(cwd, false)
         .map_err(|e| format!("Failed to load config: {}", e))?;
     let ws = local_ci_detect::detect_workspace(cwd).ok();

@@ -171,3 +171,148 @@ fn walk_and_hash(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use local_ci_core::{CacheConfig, Config, Stage};
+    use std::fs::File;
+    use std::io::Write;
+
+    fn make_temp_dir() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("local_ci_cache_test_{}", nanos));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_cache_key_for_stage() {
+        let mut stage = Stage {
+            name: "test_stage".to_string(),
+            command: Some(vec!["cargo".to_string(), "test".to_string()]),
+            ..Default::default()
+        };
+
+        assert_eq!(cache_key_for_stage(&stage, ""), "");
+        assert_eq!(cache_key_for_stage(&stage, "abc"), "abc|cargo test");
+
+        stage.command = None;
+        assert_eq!(cache_key_for_stage(&stage, "abc"), "abc|");
+    }
+
+    #[test]
+    fn test_cache_hit() {
+        let stage = Stage {
+            name: "test_stage".to_string(),
+            command: Some(vec!["cargo".to_string(), "test".to_string()]),
+            ..Default::default()
+        };
+
+        let mut cache = HashMap::new();
+        // Entry with format hash|cmd
+        cache.insert("test_stage".to_string(), "abc|cargo test".to_string());
+
+        assert!(cache_hit(&cache, &stage, "abc"));
+        assert!(!cache_hit(&cache, &stage, "def"));
+        assert!(!cache_hit(&cache, &stage, ""));
+
+        // Entry with format hash only
+        let mut cache_simple = HashMap::new();
+        cache_simple.insert("test_stage".to_string(), "abc".to_string());
+        assert!(cache_hit(&cache_simple, &stage, "abc"));
+
+        // No entry
+        assert!(!cache_hit(&HashMap::new(), &stage, "abc"));
+    }
+
+    #[test]
+    fn test_save_and_load_cache() {
+        let path = make_temp_dir();
+        let mut cache = HashMap::new();
+        cache.insert("stage_a".to_string(), "hash_a".to_string());
+        cache.insert("stage_b".to_string(), "hash_b".to_string());
+
+        save_cache(&cache, &path).unwrap();
+
+        // Verify file was written
+        let cache_file = path.join(".local-ci-cache");
+        assert!(cache_file.exists());
+
+        // Load back
+        let loaded = load_cache(&path);
+        assert_eq!(loaded.get("stage_a").unwrap(), "hash_a");
+        assert_eq!(loaded.get("stage_b").unwrap(), "hash_b");
+        assert_eq!(loaded.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_compute_hashes() {
+        let path = make_temp_dir();
+
+        // Write some source files
+        let mut f1 = File::create(path.join("main.rs")).unwrap();
+        writeln!(f1, "fn main() {{}}").unwrap();
+
+        let mut f2 = File::create(path.join("Cargo.toml")).unwrap();
+        writeln!(f2, "[package]").unwrap();
+
+        // Write a directory to skip
+        let target_dir = path.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        let mut f3 = File::create(target_dir.join("build_output.log")).unwrap();
+        writeln!(f3, "build logs...").unwrap();
+
+        let config = Config {
+            cache: CacheConfig {
+                skip_dirs: vec!["target".to_string()],
+                include_patterns: vec!["*.rs".to_string(), "*.toml".to_string()],
+            },
+            ..Default::default()
+        };
+
+        // Compute initial source hash
+        let hash1 = compute_source_hash(&path, &config, None).unwrap();
+        assert!(!hash1.is_empty());
+
+        // Modify target log file (which is skipped) and assert hash is identical
+        writeln!(f3, "more logs").unwrap();
+        let hash2 = compute_source_hash(&path, &config, None).unwrap();
+        assert_eq!(hash1, hash2);
+
+        // Modify a watched file and assert hash changed
+        let mut f1_mod = File::create(path.join("main.rs")).unwrap();
+        writeln!(f1_mod, "fn main() {{ println!(\"hello\"); }}").unwrap();
+        let hash3 = compute_source_hash(&path, &config, None).unwrap();
+        assert_ne!(hash1, hash3);
+
+        // Test stage hash with a specific watch pattern
+        let stage = Stage {
+            name: "clippy".to_string(),
+            watch: vec!["*.toml".to_string()],
+            ..Default::default()
+        };
+
+        let hash_toml_only = compute_stage_hash(&stage, &path, &config, None).unwrap();
+
+        // Modifying main.rs (not in watch) shouldn't affect the stage hash
+        let mut f1_mod2 = File::create(path.join("main.rs")).unwrap();
+        writeln!(f1_mod2, "fn main() {{ println!(\"world\"); }}").unwrap();
+        let hash_toml_only_2 = compute_stage_hash(&stage, &path, &config, None).unwrap();
+        assert_eq!(hash_toml_only, hash_toml_only_2);
+
+        // Modifying Cargo.toml (in watch) should affect the stage hash
+        let mut f2_mod = File::create(path.join("Cargo.toml")).unwrap();
+        writeln!(f2_mod, "[package]\nname = \"test\"").unwrap();
+        let hash_toml_only_3 = compute_stage_hash(&stage, &path, &config, None).unwrap();
+        assert_ne!(hash_toml_only, hash_toml_only_3);
+
+        let _ = std::fs::remove_dir_all(&path);
+    }
+}

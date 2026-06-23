@@ -1362,5 +1362,142 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         stage.name = name.clone();
     }
 
+    validate_dependency_graph(&cfg)?;
+
     Ok(cfg)
+}
+
+fn validate_dependency_graph(cfg: &Config) -> Result<(), String> {
+    for (name, stage) in &cfg.stages {
+        for dep in &stage.depends_on {
+            if !cfg.stages.contains_key(dep) {
+                return Err(format!("Stage {} depends on unknown stage {}", name, dep));
+            }
+        }
+    }
+
+    let mut visited = std::collections::HashMap::new();
+    for name in cfg.stages.keys() {
+        visited.insert(name.clone(), 0i8);
+    }
+
+    for name in cfg.stages.keys() {
+        if *visited.get(name).unwrap_or(&0) == 0 {
+            let mut path = Vec::new();
+            dfs_cycle_check(name, cfg, &mut visited, &mut path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn dfs_cycle_check(
+    node: &str,
+    cfg: &Config,
+    visited: &mut std::collections::HashMap<String, i8>,
+    path: &mut Vec<String>,
+) -> Result<(), String> {
+    visited.insert(node.to_string(), 1);
+    path.push(node.to_string());
+
+    if let Some(stage) = cfg.stages.get(node) {
+        for dep in &stage.depends_on {
+            if let Some(&status) = visited.get(dep) {
+                if status == 1 {
+                    let mut cycle_path = Vec::new();
+                    let mut found = false;
+                    for p in path.iter() {
+                        if p == dep {
+                            found = true;
+                        }
+                        if found {
+                            cycle_path.push(p.clone());
+                        }
+                    }
+                    cycle_path.push(dep.to_string());
+                    return Err(format!("Cycle detected: {}", cycle_path.join(" -> ")));
+                } else if status == 0 {
+                    dfs_cycle_check(dep, cfg, visited, path)?;
+                }
+            }
+        }
+    }
+
+    path.pop();
+    visited.insert(node.to_string(), 2);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use local_ci_core::Stage;
+    use std::fs::File;
+
+    fn make_temp_dir() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("local_ci_test_{}", nanos));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_project_detection_rust() {
+        let path = make_temp_dir();
+        File::create(path.join("Cargo.toml")).unwrap();
+        assert_eq!(detect_project_type(&path), ProjectType::Rust);
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_project_detection_go() {
+        let path = make_temp_dir();
+        File::create(path.join("go.mod")).unwrap();
+        assert_eq!(detect_project_type(&path), ProjectType::Go);
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_dependency_unknown() {
+        let mut cfg = Config::default();
+        let stage_a = Stage {
+            name: "A".to_string(),
+            depends_on: vec!["B".to_string()],
+            ..Default::default()
+        };
+        cfg.stages.insert("A".to_string(), stage_a);
+
+        let res = validate_dependency_graph(&cfg);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err(), "Stage A depends on unknown stage B");
+    }
+
+    #[test]
+    fn test_dependency_cycle() {
+        let mut cfg = Config::default();
+
+        let stage_a = Stage {
+            name: "A".to_string(),
+            depends_on: vec!["B".to_string()],
+            ..Default::default()
+        };
+        cfg.stages.insert("A".to_string(), stage_a);
+
+        let stage_b = Stage {
+            name: "B".to_string(),
+            depends_on: vec!["A".to_string()],
+            ..Default::default()
+        };
+        cfg.stages.insert("B".to_string(), stage_b);
+
+        let res = validate_dependency_graph(&cfg);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Cycle detected"));
+        assert!(err.contains("A -> B -> A") || err.contains("B -> A -> B"));
+    }
 }

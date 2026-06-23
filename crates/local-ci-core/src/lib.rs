@@ -107,7 +107,60 @@ pub struct Config {
     pub hosts: HashMap<String, RemoteHost>,
 }
 
+impl RemoteSSHDefaults {
+    pub fn with_defaults(&self) -> Self {
+        let mut out = self.clone();
+        if out.macos_user.trim().is_empty() {
+            out.macos_user = "aivcs".to_string();
+        }
+        if out.linux_spark_user.trim().is_empty() {
+            out.linux_spark_user = "aivcs2".to_string();
+        }
+        if out.windows_user.trim().is_empty() {
+            out.windows_user = "aivcs".to_string();
+        }
+        out
+    }
+}
+
+pub fn normalize_ssh_host(host: &str, platform: &str, defaults: &RemoteSSHDefaults) -> String {
+    let host = host.trim();
+    if host.is_empty() || host.contains('@') {
+        return host.to_string();
+    }
+    let d = defaults.with_defaults();
+    let user = match platform {
+        "linux_spark" => &d.linux_spark_user,
+        "windows" => &d.windows_user,
+        _ => &d.macos_user,
+    };
+    format!("{}@{}", user, host)
+}
+
+impl RemoteHost {
+    pub fn effective_platform(&self, preset_name: &str) -> String {
+        if !self.platform.trim().is_empty() {
+            return self.platform.clone();
+        }
+        match preset_name {
+            "sparky" | "aivcs2" => "linux_spark".to_string(),
+            "msi" => "windows".to_string(),
+            _ => "macos".to_string(),
+        }
+    }
+}
+
 impl Config {
+    pub fn normalize_remote_host(&self, preset_name: &str, h: &RemoteHost) -> RemoteHost {
+        let mut out = h.clone();
+        out.host = normalize_ssh_host(
+            &h.host,
+            &h.effective_platform(preset_name),
+            &self.ssh_defaults,
+        );
+        out
+    }
+
     pub fn get_timeout(&self, stage_name: &str) -> std::time::Duration {
         if let Some(stage) = self.stages.get(stage_name) {
             if stage.timeout > 0 {
