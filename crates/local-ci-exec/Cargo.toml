@@ -1,0 +1,11 @@
+[package]
+name = "local-ci-exec"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+local-ci-core = { workspace = true }
+local-ci-cache = { workspace = true }
+local-ci-detect = { workspace = true }
+libc = "0.2"

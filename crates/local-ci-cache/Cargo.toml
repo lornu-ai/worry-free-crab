@@ -1,0 +1,9 @@
+[package]
+name = "local-ci-cache"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+md5 = { workspace = true }
+local-ci-core = { workspace = true }
