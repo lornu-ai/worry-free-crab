@@ -13,3 +13,4 @@ local-ci-detect = { workspace = true }
 local-ci-exec = { workspace = true }
 local-ci-cache = { workspace = true }
 local-ci-report = { workspace = true }
+local-ci-checks = { workspace = true }
