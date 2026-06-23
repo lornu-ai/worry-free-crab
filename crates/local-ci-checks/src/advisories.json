@@ -1,0 +1,37 @@
+{
+  "last_updated": "2026-06-23T15:35:00Z",
+  "advisories": [
+    {
+      "name": "openssl",
+      "vulnerable_version_prefix": "0.10.5",
+      "severity": "High",
+      "cve_id": "CVE-2023-5678",
+      "description": "Poller issue in OpenSSL handshake protocol allowing Denial of Service.",
+      "remediation": "Upgrade openssl to 0.10.60 or higher."
+    },
+    {
+      "name": "tokio",
+      "vulnerable_version_prefix": "1.20.",
+      "severity": "Medium",
+      "cve_id": "CVE-2022-3456",
+      "description": "Tokio worker thread deadlock vulnerability under high load.",
+      "remediation": "Upgrade tokio to 1.30.0 or higher."
+    },
+    {
+      "name": "lodash",
+      "vulnerable_version_prefix": "4.17.1",
+      "severity": "Critical",
+      "cve_id": "CVE-2021-23337",
+      "description": "Prototype pollution vulnerability in lodash.template function.",
+      "remediation": "Upgrade lodash to 4.17.21 or higher."
+    },
+    {
+      "name": "log4j",
+      "vulnerable_version_prefix": "2.14.",
+      "severity": "Critical",
+      "cve_id": "CVE-2021-44228",
+      "description": "JNDI lookup feature vulnerability (Log4Shell) allowing remote code execution.",
+      "remediation": "Upgrade log4j to 2.15.0 or higher."
+    }
+  ]
+}
