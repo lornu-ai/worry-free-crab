@@ -6,6 +6,7 @@ members = [
     "crates/local-ci-cache",
     "crates/local-ci-report",
     "crates/local-ci-cli",
+    "crates/local-ci-checks",
 ]
 resolver = "2"
 
@@ -20,3 +21,4 @@ local-ci-detect = { path = "crates/local-ci-detect" }
 local-ci-exec = { path = "crates/local-ci-exec" }
 local-ci-cache = { path = "crates/local-ci-cache" }
 local-ci-report = { path = "crates/local-ci-report" }
+local-ci-checks = { path = "crates/local-ci-checks" }
