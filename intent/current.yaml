@@ -1,0 +1,12 @@
+objective_id: crr
+epic: "Code Review Requested"
+constraints:
+  - "findings-first, severity-ordered HIGH/MEDIUM/LOW"
+acceptance:
+  - "provide clear, structured, actionable feedback"
+active_agents:
+  - reviewer
+github:
+  issue: 3
+  branch: feat/fft-adapters-checks
+updated_at: "2026-06-23T15:35:00Z"

@@ -148,61 +148,61 @@ fn scan_file_lines<R: BufRead>(reader: R, relative_path: &str, report: &mut Secr
             continue;
         }
 
-        if trimmed.contains("xoxb-") || trimmed.contains("xoxp-") {
-            report.findings.push(SecretFinding {
-                file_path: relative_path.to_string(),
-                line_number: line_num,
-                line_content: redact_secret_string(trimmed, "xoxb-", 30),
-                entropy: 0.0,
-                secret_type: "Slack Token".to_string(),
-                description: "Slack Bot or User API token found.".to_string(),
-            });
-            continue;
+        struct SigRule {
+            prefixes: &'static [&'static str],
+            secret_type: &'static str,
+            description: &'static str,
+            length: usize,
         }
 
-        if trimmed.contains("ghp_") || trimmed.contains("github_pat_") {
-            let pattern = if trimmed.contains("ghp_") {
-                "ghp_"
-            } else {
-                "github_pat_"
-            };
-            report.findings.push(SecretFinding {
-                file_path: relative_path.to_string(),
-                line_number: line_num,
-                line_content: redact_secret_string(trimmed, pattern, 40),
-                entropy: 0.0,
-                secret_type: "GitHub PAT".to_string(),
-                description: "GitHub Personal Access Token found.".to_string(),
-            });
-            continue;
-        }
+        let rules = [
+            SigRule {
+                prefixes: &["xoxb-", "xoxp-"],
+                secret_type: "Slack Token",
+                description: "Slack Bot or User API token found.",
+                length: 30,
+            },
+            SigRule {
+                prefixes: &["ghp_", "github_pat_"],
+                secret_type: "GitHub PAT",
+                description: "GitHub Personal Access Token found.",
+                length: 40,
+            },
+            SigRule {
+                prefixes: &["sk_live_", "rk_live_"],
+                secret_type: "Stripe API Key",
+                description: "Stripe Live API secret or restricted key found.",
+                length: 24,
+            },
+            SigRule {
+                prefixes: &["AIzaSy"],
+                secret_type: "Google API Key",
+                description: "Google Cloud Platform API key found.",
+                length: 39,
+            },
+        ];
 
-        if trimmed.contains("sk_live_") || trimmed.contains("rk_live_") {
-            let pattern = if trimmed.contains("sk_live_") {
-                "sk_live_"
-            } else {
-                "rk_live_"
-            };
-            report.findings.push(SecretFinding {
-                file_path: relative_path.to_string(),
-                line_number: line_num,
-                line_content: redact_secret_string(trimmed, pattern, 24),
-                entropy: 0.0,
-                secret_type: "Stripe API Key".to_string(),
-                description: "Stripe Live API secret or restricted key found.".to_string(),
-            });
-            continue;
+        let mut signature_matched = false;
+        for rule in &rules {
+            for prefix in rule.prefixes {
+                if trimmed.contains(prefix) {
+                    report.findings.push(SecretFinding {
+                        file_path: relative_path.to_string(),
+                        line_number: line_num,
+                        line_content: redact_secret_string(trimmed, prefix, rule.length),
+                        entropy: 0.0,
+                        secret_type: rule.secret_type.to_string(),
+                        description: rule.description.to_string(),
+                    });
+                    signature_matched = true;
+                    break;
+                }
+            }
+            if signature_matched {
+                break;
+            }
         }
-
-        if trimmed.contains("AIzaSy") {
-            report.findings.push(SecretFinding {
-                file_path: relative_path.to_string(),
-                line_number: line_num,
-                line_content: redact_secret_string(trimmed, "AIzaSy", 39),
-                entropy: 0.0,
-                secret_type: "Google API Key".to_string(),
-                description: "Google Cloud Platform API key found.".to_string(),
-            });
+        if signature_matched {
             continue;
         }
 
@@ -269,16 +269,32 @@ fn redact_secret_string(line: &str, pattern: &str, length: usize) -> String {
     if let Some(pos) = line.find(pattern) {
         let end_idx = std::cmp::min(line.len(), pos + length);
         let secret = &line[pos..end_idx];
-        let redacted = format!("{}...", &secret[0..std::cmp::min(secret.len(), 8)]);
-        line.replace(secret, &redacted)
+        let prefix_len = std::cmp::min(secret.len(), 8);
+        let replacement = if secret.len() <= 8 {
+            if secret.is_empty() {
+                "****".to_string()
+            } else {
+                format!("{}****", &secret[0..1])
+            }
+        } else {
+            format!("{}...", &secret[0..prefix_len])
+        };
+        line.replace(secret, &replacement)
     } else {
         "[REDACTED]".to_string()
     }
 }
 
 fn redact_value(line: &str, value: &str) -> String {
-    let prefix_len = std::cmp::min(value.len(), 6);
-    let replacement = format!("{}...", &value[0..prefix_len]);
+    let replacement = if value.len() <= 6 {
+        if value.is_empty() {
+            "****".to_string()
+        } else {
+            format!("{}****", &value[0..1])
+        }
+    } else {
+        format!("{}...", &value[0..6])
+    };
     line.replace(value, &replacement)
 }
 
@@ -306,5 +322,21 @@ let token = \"xoxb-1234567890-abcdefgh\";
         assert_eq!(report.findings.len(), 2);
         assert_eq!(report.findings[0].secret_type, "High Entropy Secret");
         assert_eq!(report.findings[1].secret_type, "Slack Token");
+    }
+
+    #[test]
+    fn test_redact_short_secrets() {
+        assert_eq!(
+            redact_value("secret = \"abc\"", "abc"),
+            "secret = \"a****\""
+        );
+        assert_eq!(
+            redact_value("secret = \"abcdefg\"", "abcdefg"),
+            "secret = \"abcdef...\""
+        );
+        assert_eq!(
+            redact_secret_string("token = \"xoxb-1\"", "xoxb-", 10),
+            "token = \"x****"
+        );
     }
 }
