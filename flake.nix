@@ -20,11 +20,27 @@
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "clippy" "rustfmt" ];
         };
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+        local-ci = rustPlatform.buildRustPackage {
+          pname = "local-ci";
+          version = "0.3.0";
+          src = ./.;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
+        };
       in {
+        packages.local-ci = local-ci;
+        packages.default = local-ci;
+
         devShells.default = pkgs.mkShell {
           packages = [
             rustToolchain
             pkgs.git
+            local-ci
           ];
         };
 
