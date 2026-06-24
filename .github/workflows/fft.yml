@@ -1,0 +1,78 @@
+# Fast Free Testing (FFT) checks for worry-free-crab.
+#
+# FFT replaces the legacy local-ci self-test stages. The hermetic source of
+# truth for these checks is the Nix flake (`nix build .#checks.<system>.<name>`)
+# declared in propel.toml; this workflow runs the same check set directly so
+# results report on every pull request until the FFT webhook/runner is wired up.
+name: FFT
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: fft-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  type-safety:
+    name: type-safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gitleaks
+        run: |
+          VERSION=8.18.4
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+      - name: gitleaks detect
+        run: gitleaks detect --source . --no-git --exit-code 1 --redact
+
+  config-lint:
+    name: config-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No hardcoded localhost URLs or inline passwords
+        run: |
+          failed=0
+          if grep -rn "http://localhost" --include="*.rs" --include="*.toml" .; then
+            echo "::error::Hardcoded localhost URLs found"; failed=1
+          fi
+          if grep -rnE 'password[[:space:]]*[=:][[:space:]]*["'"'"'][^"'"'"']+["'"'"']' \
+               --include="*.rs" --include="*.toml" --include="*.json" .; then
+            echo "::error::Hardcoded passwords found"; failed=1
+          fi
+          if [ "$failed" -ne 0 ]; then exit 1; fi
+          echo "Config lint passed"
