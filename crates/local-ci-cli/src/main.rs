@@ -1360,14 +1360,8 @@ fn print_dry_run_json(report: &DryRunReport) {
     }
 }
 
-// ============================================================================
-// Checks and FFT Subcommands Implementation
-// ============================================================================
-
-fn cmd_check(cwd: &Path, json: bool) {
-    let linter_report = local_ci_checks::lint_config_in_workspace(cwd);
-
-    let skip_dirs = if let Ok(config) = local_ci_detect::load_config(cwd, false) {
+fn get_skip_dirs(repo_dir: &Path) -> Vec<String> {
+    if let Ok(config) = local_ci_detect::load_config(repo_dir, false) {
         config.cache.skip_dirs.clone()
     } else {
         vec![
@@ -1375,7 +1369,13 @@ fn cmd_check(cwd: &Path, json: bool) {
             ".git".to_string(),
             "node_modules".to_string(),
         ]
-    };
+    }
+}
+
+fn cmd_check(cwd: &Path, json: bool) {
+    let linter_report = local_ci_checks::lint_config_in_workspace(cwd);
+
+    let skip_dirs = get_skip_dirs(cwd);
 
     let secrets_report = local_ci_checks::scan_workspace_secrets(cwd, &skip_dirs);
     let vulnerability_report = local_ci_checks::scan_workspace_vulnerabilities(cwd);
@@ -1462,23 +1462,25 @@ fn cmd_check(cwd: &Path, json: bool) {
     }
 }
 
-fn extract_sha_from_event(event_path: &str) -> Option<String> {
-    let content = std::fs::read_to_string(event_path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+fn extract_sha_from_event(event_path: &str) -> Result<String, String> {
+    let content = std::fs::read_to_string(event_path)
+        .map_err(|e| format!("Failed to read event file '{}': {}", event_path, e))?;
+    let val: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse event JSON: {}", e))?;
 
     if let Some(sha) = val
         .pointer("/pull_request/head/sha")
         .and_then(|v| v.as_str())
     {
-        return Some(sha.to_string());
+        return Ok(sha.to_string());
     }
     if let Some(sha) = val.get("after").and_then(|v| v.as_str()) {
-        return Some(sha.to_string());
+        return Ok(sha.to_string());
     }
     if let Some(sha) = val.pointer("/head_commit/id").and_then(|v| v.as_str()) {
-        return Some(sha.to_string());
+        return Ok(sha.to_string());
     }
-    None
+    Err("Could not find commit SHA in event payload (checked /pull_request/head/sha, /after, and /head_commit/id)".to_string())
 }
 
 fn get_git_sha(repo_path: &Path) -> String {
@@ -1519,12 +1521,10 @@ fn cmd_fft(cwd: &Path, cli: &Cli) {
 
     let head_sha = match &cli.event {
         Some(event_path) => match extract_sha_from_event(event_path) {
-            Some(sha) => sha,
-            None => {
-                local_ci_report::warnf!(
-                    "Warning: Could not extract SHA from event file. Falling back to git.\n"
-                );
-                get_git_sha(&repo_dir)
+            Ok(sha) => sha,
+            Err(e) => {
+                local_ci_report::errorf!("Error: {}\n", e);
+                std::process::exit(1);
             }
         },
         None => get_git_sha(&repo_dir),
@@ -1532,25 +1532,16 @@ fn cmd_fft(cwd: &Path, cli: &Cli) {
 
     let linter_report = local_ci_checks::lint_config_in_workspace(&repo_dir);
 
-    let skip_dirs = if let Ok(config) = local_ci_detect::load_config(&repo_dir, false) {
-        config.cache.skip_dirs.clone()
-    } else {
-        vec![
-            "target".to_string(),
-            ".git".to_string(),
-            "node_modules".to_string(),
-        ]
-    };
+    let skip_dirs = get_skip_dirs(&repo_dir);
 
     let secrets_report = local_ci_checks::scan_workspace_secrets(&repo_dir, &skip_dirs);
     let vulnerability_report = local_ci_checks::scan_workspace_vulnerabilities(&repo_dir);
 
-    let mut payload = local_ci_checks::CheckRunPayload::new(
-        "FFT Checks",
-        &head_sha,
-        "completed",
-        "2026-06-23T12:00:00Z",
-    );
+    let now = chrono::Utc::now();
+    let started_at = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let mut payload =
+        local_ci_checks::CheckRunPayload::new("FFT Checks", &head_sha, "completed", &started_at);
 
     let mut annotations = Vec::new();
     annotations.extend(local_ci_checks::map_vulnerabilities_to_annotations(
@@ -1572,9 +1563,10 @@ fn cmd_fft(cwd: &Path, cli: &Cli) {
         secrets_report.findings.len()
     );
 
+    let completed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     payload.complete(
         conclusion,
-        "2026-06-23T12:01:00Z",
+        &completed_at,
         "Fast-Free-Testing (FFT) Security & Lint Check",
         &summary,
         None,
@@ -1596,21 +1588,50 @@ fn cmd_fft(cwd: &Path, cli: &Cli) {
         "us-east-1",
     );
 
-    if let Some(out_path) = &cli.out {
-        s3_plan.add_item(
+    let json_str = if let Some(out_path) = &cli.out {
+        let placeholder_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+        s3_plan.add_item(out_path, "application/json", placeholder_hash, 0);
+
+        let placeholder_output = serde_json::json!({
+            "github_checks": payload,
+            "s3_upload_plan": s3_plan,
+        });
+
+        let placeholder_json_str =
+            serde_json::to_string_pretty(&placeholder_output).unwrap_or_default();
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(placeholder_json_str.as_bytes());
+        let computed_hash = format!("{:x}", hasher.finalize());
+        let computed_size = placeholder_json_str.len();
+
+        let mut actual_s3_plan = local_ci_checks::S3UploadPlan::new(
+            workspace_name,
+            &head_sha,
+            "lornu-fft-artifacts",
+            "us-east-1",
+        );
+        actual_s3_plan.add_item(
             out_path,
             "application/json",
-            "d3f8202cf71cb0a62a04870f711200f40bfb72a6b2234032d930fca68340dfa3",
-            1024,
+            &computed_hash,
+            computed_size as u64,
         );
-    }
 
-    let final_output = serde_json::json!({
-        "github_checks": payload,
-        "s3_upload_plan": s3_plan,
-    });
+        let final_output = serde_json::json!({
+            "github_checks": payload,
+            "s3_upload_plan": actual_s3_plan,
+        });
 
-    let json_str = serde_json::to_string_pretty(&final_output).unwrap_or_default();
+        serde_json::to_string_pretty(&final_output).unwrap_or_default()
+    } else {
+        let final_output = serde_json::json!({
+            "github_checks": payload,
+            "s3_upload_plan": s3_plan,
+        });
+        serde_json::to_string_pretty(&final_output).unwrap_or_default()
+    };
 
     if let Some(out_path) = &cli.out {
         if let Err(e) = std::fs::write(out_path, &json_str) {
@@ -1628,5 +1649,66 @@ fn cmd_fft(cwd: &Path, cli: &Cli) {
 
     if has_failures {
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_sha_from_event() {
+        let temp_file = "test_event_temp.json";
+
+        // 1. Test missing file
+        let res = extract_sha_from_event("non_existent_file_xyz.json");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Failed to read event file"));
+
+        // 2. Test invalid JSON
+        std::fs::write(temp_file, "invalid-json-content").unwrap();
+        let res = extract_sha_from_event(temp_file);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Failed to parse event JSON"));
+
+        // 3. Test pull_request head sha
+        let pr_json = r#"{
+            "pull_request": {
+                "head": {
+                    "sha": "abcdef1234567890abcdef1234567890abcdef12"
+                }
+            }
+        }"#;
+        std::fs::write(temp_file, pr_json).unwrap();
+        let res = extract_sha_from_event(temp_file);
+        assert_eq!(res.unwrap(), "abcdef1234567890abcdef1234567890abcdef12");
+
+        // 4. Test after field
+        let after_json = r#"{
+            "after": "fedcba0987654321fedcba0987654321fedcba09"
+        }"#;
+        std::fs::write(temp_file, after_json).unwrap();
+        let res = extract_sha_from_event(temp_file);
+        assert_eq!(res.unwrap(), "fedcba0987654321fedcba0987654321fedcba09");
+
+        // 5. Test head_commit id
+        let head_commit_json = r#"{
+            "head_commit": {
+                "id": "1111222233334444555566667777888899990000"
+            }
+        }"#;
+        std::fs::write(temp_file, head_commit_json).unwrap();
+        let res = extract_sha_from_event(temp_file);
+        assert_eq!(res.unwrap(), "1111222233334444555566667777888899990000");
+
+        // 6. Test missing SHA fields
+        let empty_json = r#"{"foo": "bar"}"#;
+        std::fs::write(temp_file, empty_json).unwrap();
+        let res = extract_sha_from_event(temp_file);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Could not find commit SHA"));
+
+        // Clean up
+        let _ = std::fs::remove_file(temp_file);
     }
 }
