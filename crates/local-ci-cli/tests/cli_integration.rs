@@ -16,15 +16,19 @@ fn test_cli_version() {
 fn test_cli_help() {
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.arg("--help");
-    cmd.assert().success().stdout(predicate::str::contains("local-ci"));
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("local-ci"));
 }
 
 #[test]
 fn test_cli_list_stages() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let config_path = temp_dir.path().join(".local-ci.toml");
-    
-    fs::write(&config_path, r#"
+
+    fs::write(
+        &config_path,
+        r#"
 [stages.fmt]
 command = ["rustfmt", "--check", "src/"]
 timeout = 30
@@ -33,70 +37,83 @@ timeout = 30
 command = ["cargo", "clippy"]
 timeout = 60
 depends_on = ["fmt"]
-"#).expect("failed to write config");
+"#,
+    )
+    .expect("failed to write config");
 
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("--list");
-    cmd.assert().success().stdout(
-        predicate::str::contains("fmt")
-            .and(predicate::str::contains("clippy"))
-    );
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("fmt").and(predicate::str::contains("clippy")));
 }
 
 #[test]
 fn test_cli_init() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    
+
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("init");
     cmd.assert().success();
-    
+
     // Verify .local-ci.toml was created
     let config_path = temp_dir.path().join(".local-ci.toml");
     assert!(config_path.exists(), ".local-ci.toml not created");
-    
+
     let content = fs::read_to_string(&config_path).expect("failed to read config");
-    assert!(content.contains("[stages"), "config missing [stages] section");
+    assert!(
+        content.contains("[stages"),
+        "config missing [stages] section"
+    );
 }
 
 #[test]
 fn test_cli_dry_run() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let config_path = temp_dir.path().join(".local-ci.toml");
-    
-    fs::write(&config_path, r#"
+
+    fs::write(
+        &config_path,
+        r#"
 [stages.echo]
 command = ["echo", "hello"]
 timeout = 10
-"#).expect("failed to write config");
+"#,
+    )
+    .expect("failed to write config");
 
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("--dry-run");
     cmd.arg("echo");
-    cmd.assert().success().stdout(predicate::str::contains("echo").or(predicate::str::contains("Would run")));
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("echo").or(predicate::str::contains("Would run")));
 }
 
 #[test]
 fn test_cli_json_output() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let config_path = temp_dir.path().join(".local-ci.toml");
-    
-    fs::write(&config_path, r#"
+
+    fs::write(
+        &config_path,
+        r#"
 [stages.true]
 command = ["true"]
 timeout = 10
-"#).expect("failed to write config");
+"#,
+    )
+    .expect("failed to write config");
 
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("--json");
     cmd.arg("true");
     cmd.assert().success().stdout(
-        predicate::str::contains("schema_version")
-            .and(predicate::str::contains("local-ci.result"))
+        predicate::str::contains("schema_version").and(predicate::str::contains("local-ci.result")),
     );
 }
 
@@ -104,8 +121,10 @@ timeout = 10
 fn test_cli_stage_selection() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let config_path = temp_dir.path().join(".local-ci.toml");
-    
-    fs::write(&config_path, r#"
+
+    fs::write(
+        &config_path,
+        r#"
 [stages.fmt]
 command = ["echo", "fmt"]
 timeout = 10
@@ -113,39 +132,51 @@ timeout = 10
 [stages.test]
 command = ["echo", "test"]
 timeout = 10
-"#).expect("failed to write config");
+"#,
+    )
+    .expect("failed to write config");
 
     // Test selecting specific stages
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("--dry-run");
     cmd.arg("fmt");
-    cmd.assert().success().stdout(predicate::str::contains("fmt"));
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("fmt"));
 }
 
 #[test]
 fn test_cli_missing_config() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    
+
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("--list");
-    cmd.assert().failure().stderr(predicate::str::contains("config").or(predicate::str::contains("not found")));
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("config").or(predicate::str::contains("not found")));
 }
 
 #[test]
 fn test_cli_unknown_stage() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let config_path = temp_dir.path().join(".local-ci.toml");
-    
-    fs::write(&config_path, r#"
+
+    fs::write(
+        &config_path,
+        r#"
 [stages.fmt]
 command = ["echo", "fmt"]
 timeout = 10
-"#).expect("failed to write config");
+"#,
+    )
+    .expect("failed to write config");
 
     let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
     cmd.current_dir(temp_dir.path());
     cmd.arg("unknown-stage");
-    cmd.assert().failure().stderr(predicate::str::contains("unknown").or(predicate::str::contains("not found")));
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown").or(predicate::str::contains("not found")));
 }

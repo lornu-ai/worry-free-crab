@@ -3,7 +3,6 @@
 
 #![allow(clippy::field_reassign_with_default)]
 
-
 // Mock structures for testing
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct MockStageResult {
