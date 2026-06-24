@@ -89,22 +89,7 @@ impl S3UploadPlan {
 }
 
 fn chrono_now_utc_string() -> String {
-    // Return standard ISO format string
-    // In production we'd use chrono, but we avoid extra dependency overhead
-    // by returning a hardcoded formatted time or checking system time simply
-    let elapsed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = elapsed.as_secs();
-
-    // Fallback standard ISO timestamp string representing mock date for clean fast results
-    // format: YYYY-MM-DDTHH:MM:SSZ
-    let d = 24 * 60 * 60;
-    let _day = secs / d;
-    let hour = (secs % d) / 3600;
-    let min = (secs % 3600) / 60;
-    let sec = secs % 60;
-    format!("2026-06-23T{:02}:{:02}:{:02}Z", hour, min, sec)
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 #[cfg(test)]

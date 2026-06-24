@@ -1,6 +1,10 @@
 # local-ci configuration for Rust project
 # See: https://github.com/stevedores-org/local-ci
 
+[project]
+name = "worry-free-crab"
+type = "rust"
+
 [cache]
 skip_dirs = [".git", "target", ".github", "scripts", ".claude", "node_modules"]
 include_patterns = ["*.rs", "*.toml", "*.lock"]
