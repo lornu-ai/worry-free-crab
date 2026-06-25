@@ -41,7 +41,10 @@ required = true
 enabled = false
 
 [policy]
-requires_human_approval = false
+# Every PR requires at least one human approving review before it can merge.
+# Enforced on the GitHub side by branch protection on `main`
+# (required_pull_request_reviews.required_approving_review_count = 1).
+requires_human_approval = true
 secrets_scope = "ci/repos/lornu-ai/worry-free-crab"
 allowed_orgs = ["lornu-ai", "stevedores-org"]
 allowed_refs = ["refs/heads/main"]
