@@ -47,28 +47,38 @@
         # Fast Free Testing (FFT) check contract. These replace the legacy
         # local-ci fmt/clippy/test stages. Check names match propel.toml so the
         # FFT NixOS runner can dispatch `nix build .#checks.<system>.<name>`.
+        #
+        # The cargo-based checks are derived from the `local-ci` package via
+        # overrideAttrs so they inherit its vendored dependencies (cargoLock).
+        # This keeps them hermetic: cargo runs fully offline, so the checks
+        # build on a sandboxed runner instead of failing on a network fetch.
         checks = {
-          # Type safety: compiles, is formatted, and lints clean.
-          type-safety = pkgs.runCommand "check-type-safety" {
-            buildInputs = [ rustToolchain pkgs.pkg-config ];
-            src = self;
-          } ''
-            cd $src
-            cargo fmt --all -- --check
-            cargo check --workspace --all-targets
-            cargo clippy --workspace --all-targets -- -D warnings
-            touch $out
-          '';
+          # Type safety: formatted and lints clean (clippy compiles the
+          # workspace, so it subsumes `cargo check`).
+          type-safety = local-ci.overrideAttrs (old: {
+            pname = "check-type-safety";
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ rustToolchain ];
+            buildPhase = ''
+              runHook preBuild
+              cargo fmt --all -- --check
+              cargo clippy --workspace --all-targets -- -D warnings
+              runHook postBuild
+            '';
+            doCheck = false;
+            installPhase = "touch $out";
+          });
 
-          # Unit tests: the full workspace test suite.
-          unit-tests = pkgs.runCommand "check-unit-tests" {
-            buildInputs = [ rustToolchain pkgs.pkg-config ];
-            src = self;
-          } ''
-            cd $src
-            cargo test --workspace
-            touch $out
-          '';
+          # Unit tests: the full workspace test suite, against vendored deps.
+          unit-tests = local-ci.overrideAttrs (old: {
+            pname = "check-unit-tests";
+            buildPhase = ''
+              runHook preBuild
+              cargo test --workspace
+              runHook postBuild
+            '';
+            doCheck = false;
+            installPhase = "touch $out";
+          });
 
           # Secrets: gitleaks scan of the working tree.
           secrets = pkgs.runCommand "check-secrets" {
