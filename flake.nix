@@ -49,26 +49,36 @@
         # FFT NixOS runner can dispatch `nix build .#checks.<system>.<name>`.
         checks = {
           # Type safety: compiles, is formatted, and lints clean.
-          type-safety = pkgs.runCommand "check-type-safety" {
-            buildInputs = [ rustToolchain pkgs.pkg-config ];
-            src = self;
-          } ''
-            cd $src
-            cargo fmt --all -- --check
-            cargo check --workspace --all-targets
-            cargo clippy --workspace --all-targets -- -D warnings
-            touch $out
-          '';
+          type-safety = rustPlatform.buildRustPackage {
+            pname = "check-type-safety";
+            version = "0.3.0";
+            src = ./.;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+            };
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildPhase = ''
+              cargo fmt --all -- --check
+              cargo check --workspace --all-targets
+              cargo clippy --workspace --all-targets -- -D warnings
+            '';
+            installPhase = "touch $out";
+          };
 
           # Unit tests: the full workspace test suite.
-          unit-tests = pkgs.runCommand "check-unit-tests" {
-            buildInputs = [ rustToolchain pkgs.pkg-config ];
-            src = self;
-          } ''
-            cd $src
-            cargo test --workspace
-            touch $out
-          '';
+          unit-tests = rustPlatform.buildRustPackage {
+            pname = "check-unit-tests";
+            version = "0.3.0";
+            src = ./.;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+            };
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildPhase = ''
+              cargo test --workspace
+            '';
+            installPhase = "touch $out";
+          };
 
           # Secrets: gitleaks scan of the working tree.
           secrets = pkgs.runCommand "check-secrets" {
