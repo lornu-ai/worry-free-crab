@@ -35,5 +35,6 @@ jobs:
         uses: cachix/install-nix-action@v27
 
       - name: Run local-ci via worry-free-crab
-        run: nix run github:lornu-ai/worry-free-crab
+        run: nix --extra-conf "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" run github:lornu-ai/worry-free-crab
+
 
