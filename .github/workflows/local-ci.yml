@@ -35,4 +35,5 @@ jobs:
         uses: cachix/install-nix-action@v27
 
       - name: Run local-ci via worry-free-crab
-        run: nix run github:lornu-ai/worry-free-crab -- --all
+        run: nix run github:lornu-ai/worry-free-crab
+
