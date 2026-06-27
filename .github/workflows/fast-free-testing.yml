@@ -1,6 +1,6 @@
 # Fast-Free-Testing CI
 # Replaces GitHub Actions with AWS Lambda-backed FFT for zero-cost, ultra-fast checks
-# Triggers on: PR open/sync/reopen, pushes to main/develop
+# Triggers on: PR open/sync/reopen, pushes to main
 
 name: fast-free-testing
 
@@ -14,7 +14,6 @@ on:
   push:
     branches:
       - main
-      - develop
 
 jobs:
   trigger:
