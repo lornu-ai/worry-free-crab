@@ -1,0 +1,33 @@
+name: Gitea CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: gitea-ci-${{ gitea.workflow }}-${{ gitea.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    name: Gitea Actions Validation
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git Credentials
+        run: |
+          git config --global url."https://git.aivcs.io/".insteadOf "https://github.com/"
+
+      - name: Run Worry-Free-Crab (local-ci replacement)
+        run: |
+          nix run github:lornu-ai/worry-free-crab
