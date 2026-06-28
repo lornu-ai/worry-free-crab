@@ -24,7 +24,7 @@ fn test_cli_help() {
 #[test]
 fn test_cli_list_stages() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join(".local-ci.toml");
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
 
     fs::write(
         &config_path,
@@ -72,7 +72,7 @@ fn test_cli_init() {
 #[test]
 fn test_cli_dry_run() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join(".local-ci.toml");
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
 
     fs::write(
         &config_path,
@@ -96,7 +96,7 @@ timeout = 10
 #[test]
 fn test_cli_json_output() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join(".local-ci.toml");
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
 
     fs::write(
         &config_path,
@@ -120,7 +120,7 @@ timeout = 10
 #[test]
 fn test_cli_stage_selection() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join(".local-ci.toml");
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
 
     fs::write(
         &config_path,
@@ -161,7 +161,7 @@ fn test_cli_missing_config() {
 #[test]
 fn test_cli_unknown_stage() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join(".local-ci.toml");
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
 
     fs::write(
         &config_path,
@@ -179,4 +179,65 @@ timeout = 10
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("unknown").or(predicate::str::contains("not found")));
+}
+
+#[test]
+fn test_cli_deprecation_warning() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let config_path = temp_dir.path().join(".local-ci.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+[stages.fmt]
+command = ["echo", "fmt"]
+timeout = 10
+"#,
+    )
+    .expect("failed to write config");
+
+    let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
+    cmd.current_dir(temp_dir.path());
+    cmd.arg("--list");
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("Warning: .local-ci.toml is deprecated").or(
+            predicate::str::contains("Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml")
+        ));
+}
+
+#[test]
+fn test_cli_preference() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let wfc_config_path = temp_dir.path().join(".wfc-ci.toml");
+    let local_config_path = temp_dir.path().join(".local-ci.toml");
+
+    fs::write(
+        &wfc_config_path,
+        r#"
+[stages.wfc-stage]
+command = ["echo", "wfc"]
+timeout = 10
+"#,
+    )
+    .expect("failed to write wfc config");
+
+    fs::write(
+        &local_config_path,
+        r#"
+[stages.local-stage]
+command = ["echo", "local"]
+timeout = 10
+"#,
+    )
+    .expect("failed to write local config");
+
+    let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
+    cmd.current_dir(temp_dir.path());
+    cmd.arg("--list");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("wfc-stage"))
+        .stdout(predicate::str::contains("local-stage").not())
+        .stderr(predicate::str::contains("Warning: .local-ci.toml is deprecated").not());
 }

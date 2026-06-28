@@ -649,7 +649,7 @@ pub fn get_default_stages_for_type(
                     name: "test".to_string(),
                     command: Some(vec![
                         "echo".to_string(),
-                        "Please configure stages in .local-ci.toml".to_string(),
+                        "Please configure stages in .wfc-ci.toml".to_string(),
                     ]),
                     fix_command: None,
                     check: false,
@@ -1215,7 +1215,7 @@ skip_dirs = [".git", ".github", "scripts", ".claude", "node_modules", "target", 
 include_patterns = ["*"]
 
 [stages.placeholder]
-command = ["echo", "Configure stages in .local-ci.toml"]
+command = ["echo", "Configure stages in .wfc-ci.toml"]
 timeout = 60
 enabled = false
 

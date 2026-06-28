@@ -58,12 +58,17 @@ pub fn lint_config_in_workspace<P: AsRef<Path>>(workspace_root: P) -> LinterRepo
         });
     }
 
+    let file_name = config_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".wfc-ci.toml");
+
     let content = match fs::read_to_string(&config_path) {
         Ok(c) => c,
         Err(e) => {
             report.warnings.push(LintWarning {
                 rule_id: "LC_CFG_READ_FAIL".to_string(),
-                message: format!("Failed to read .local-ci.toml: {}", e),
+                message: format!("Failed to read {}: {}", file_name, e),
                 severity: LintSeverity::Error,
                 line_number: None,
                 remediation: "Verify file read permissions and encoding.".to_string(),
@@ -82,7 +87,7 @@ pub fn lint_config_in_workspace<P: AsRef<Path>>(workspace_root: P) -> LinterRepo
         Err(e) => {
             report.warnings.push(LintWarning {
                 rule_id: "LC_CFG_PARSE_FAIL".to_string(),
-                message: format!("Failed to parse .local-ci.toml as valid TOML: {}", e),
+                message: format!("Failed to parse {} as valid TOML: {}", file_name, e),
                 severity: LintSeverity::Error,
                 line_number: None,
                 remediation: "Verify TOML structure matches the reference specification."

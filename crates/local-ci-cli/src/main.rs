@@ -987,7 +987,7 @@ fn cmd_serve(cwd: &Path) -> Result<(), String> {
                                             )),
                                             Some(stage) => {
                                                 if !stage.enabled {
-                                                    make_mcp_error_result(&format!("stage \"{}\" is disabled; enable it in .local-ci.toml to run", s_name))
+                                                    make_mcp_error_result(&format!("stage \"{}\" is disabled; enable it in .wfc-ci.toml to run", s_name))
                                                 } else {
                                                     let mut s = stage.clone();
                                                     s.name = s_name.to_string();

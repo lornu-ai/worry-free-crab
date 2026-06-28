@@ -117,6 +117,14 @@ pub fn map_vulnerabilities_to_annotations(report: &VulnerabilityReport) -> Vec<C
 pub fn map_linter_to_annotations(report: &LinterReport) -> Vec<CheckAnnotation> {
     let mut annotations = Vec::new();
 
+    let path = if std::path::Path::new(".wfc-ci.toml").exists() {
+        ".wfc-ci.toml".to_string()
+    } else if std::path::Path::new(".local-ci.toml").exists() {
+        ".local-ci.toml".to_string()
+    } else {
+        ".wfc-ci.toml".to_string()
+    };
+
     for warn in &report.warnings {
         let level = match warn.severity {
             LintSeverity::Error => "failure".to_string(),
@@ -124,7 +132,7 @@ pub fn map_linter_to_annotations(report: &LinterReport) -> Vec<CheckAnnotation> 
         };
 
         annotations.push(CheckAnnotation {
-            path: ".local-ci.toml".to_string(), // config path
+            path: path.clone(), // config path
             start_line: warn.line_number.unwrap_or(1),
             end_line: warn.line_number.unwrap_or(1),
             start_column: None,
