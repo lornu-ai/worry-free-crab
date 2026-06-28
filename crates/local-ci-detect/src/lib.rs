@@ -1247,13 +1247,23 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         ssh_defaults: RemoteSSHDefaults::default(),
     };
 
-    // Load local TOML
-    let config_path = root.join(".local-ci.toml");
+    // Load local TOML (.wfc-ci.toml preferred, .local-ci.toml deprecated)
+    let wfc_config_path = root.join(".wfc-ci.toml");
+    let local_config_path = root.join(".local-ci.toml");
+    let (config_path, is_deprecated) = if wfc_config_path.exists() {
+        (wfc_config_path, false)
+    } else {
+        (local_config_path, true)
+    };
+
     if config_path.exists() {
+        if is_deprecated {
+            eprintln!("Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml");
+        }
         let data = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read .local-ci.toml: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
         let local_cfg: Config =
-            toml::from_str(&data).map_err(|e| format!("Failed to parse .local-ci.toml: {}", e))?;
+            toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
 
         // Merge stage map
         for (name, stage) in local_cfg.stages {

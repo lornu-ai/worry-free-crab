@@ -58,9 +58,9 @@ fn test_cli_init() {
     cmd.arg("init");
     cmd.assert().success();
 
-    // Verify .local-ci.toml was created
-    let config_path = temp_dir.path().join(".local-ci.toml");
-    assert!(config_path.exists(), ".local-ci.toml not created");
+    // Verify .wfc-ci.toml was created
+    let config_path = temp_dir.path().join(".wfc-ci.toml");
+    assert!(config_path.exists(), ".wfc-ci.toml not created");
 
     let content = fs::read_to_string(&config_path).expect("failed to read config");
     assert!(

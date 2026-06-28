@@ -166,15 +166,25 @@ fn main() {
         }
     }
 
-    // 2. Verify that .local-ci.toml exists
-    let config_file_path = cwd.join(".local-ci.toml");
+    // 2. Verify that .wfc-ci.toml or .local-ci.toml exists
+    let wfc_config_path = cwd.join(".wfc-ci.toml");
+    let local_config_path = cwd.join(".local-ci.toml");
+    let (config_file_path, is_deprecated) = if wfc_config_path.exists() {
+        (wfc_config_path, false)
+    } else {
+        (local_config_path, true)
+    };
+
     if !config_file_path.exists() {
         local_ci_report::errorf!(
-            "Error: Config file not found at {}.\n\
-             Please run `local-ci init` to initialize the project configuration.\n",
-            config_file_path.display()
+            "Error: Config file not found (.wfc-ci.toml).\n\
+             Please run `local-ci init` to initialize the project configuration.\n"
         );
         std::process::exit(1);
+    }
+
+    if is_deprecated {
+        local_ci_report::warnf!("Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml.\n");
     }
 
     let need_remote_cfg =
@@ -671,12 +681,12 @@ fn cmd_init(root: &Path) {
     // Save default config TOML
     let project_type = local_ci_detect::detect_project_type(root);
     let template = local_ci_detect::get_config_template_for_type(project_type, root);
-    let config_path = root.join(".local-ci.toml");
+    let config_path = root.join(".wfc-ci.toml");
     if let Err(e) = std::fs::write(&config_path, template) {
-        local_ci_report::errorf!("Failed to create .local-ci.toml: {}\n", e);
+        local_ci_report::errorf!("Failed to create .wfc-ci.toml: {}\n", e);
         std::process::exit(1);
     }
-    local_ci_report::successf!("✅ Created .local-ci.toml\n");
+    local_ci_report::successf!("✅ Created .wfc-ci.toml\n");
 
     // Update .gitignore
     if let Err(e) = update_gitignore(root) {
@@ -697,7 +707,7 @@ fn cmd_init(root: &Path) {
 
     local_ci_report::printf!("\n💡 Next steps:\n");
     local_ci_report::printf!("  1. Run 'local-ci' to test the setup\n");
-    local_ci_report::printf!("  2. Customize .local-ci.toml as needed\n");
+    local_ci_report::printf!("  2. Customize .wfc-ci.toml as needed\n");
     if project_type == local_ci_detect::ProjectType::Rust {
         local_ci_report::printf!("  3. Consider installing cargo tools:\n");
         local_ci_report::printf!("     - cargo install cargo-deny\n");
@@ -819,12 +829,16 @@ fn create_pre_commit_hook(
 }
 
 fn cmd_serve(cwd: &Path) -> Result<(), String> {
-    let config_file_path = cwd.join(".local-ci.toml");
+    let wfc_config_path = cwd.join(".wfc-ci.toml");
+    let local_config_path = cwd.join(".local-ci.toml");
+    let config_file_path = if wfc_config_path.exists() {
+        wfc_config_path
+    } else {
+        local_config_path
+    };
+
     if !config_file_path.exists() {
-        return Err(format!(
-            "Config file not found at {}. Please run `local-ci init` to initialize the project configuration.",
-            config_file_path.display()
-        ));
+        return Err("Config file not found (.wfc-ci.toml). Please run `local-ci init` to initialize the project configuration.".to_string());
     }
     let config = local_ci_detect::load_config(cwd, false)
         .map_err(|e| format!("Failed to load config: {}", e))?;
