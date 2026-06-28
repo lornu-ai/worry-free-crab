@@ -1,0 +1,42 @@
+# local-ci CI workflow running worry-free-crab
+# Runs all enabled stages pre-commit/pre-push
+
+name: local-ci
+
+concurrency:
+  group: local-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  local-ci:
+    name: local-ci (all enabled stages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git helper for private org repositories
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run local-ci via worry-free-crab
+        run: nix run github:lornu-ai/worry-free-crab
+
+
+

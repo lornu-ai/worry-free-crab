@@ -41,6 +41,8 @@ required = true
 enabled = false
 
 [policy]
+# We DO NOT require human approvals to merge any PR.
+# Instead, agent PR approval is required before it can merge.
 requires_human_approval = false
 secrets_scope = "ci/repos/lornu-ai/worry-free-crab"
 allowed_orgs = ["lornu-ai", "stevedores-org"]
