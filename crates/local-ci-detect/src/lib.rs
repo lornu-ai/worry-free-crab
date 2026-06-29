@@ -1256,8 +1256,67 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         }
         let data = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
-        let local_cfg: Config =
-            toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
+        #[derive(Debug, Deserialize)]
+        struct PropelCheck {
+            name: String,
+            command: Option<Vec<String>>,
+            #[serde(alias = "fix_cmd", alias = "fix_command")]
+            fix_command: Option<Vec<String>>,
+            #[serde(default)]
+            check: bool,
+            #[serde(default, alias = "timeout", alias = "timeout_seconds")]
+            timeout_seconds: i64,
+            #[serde(default = "default_true")]
+            enabled: bool,
+            #[serde(default, alias = "depends_on")]
+            depends_on: Vec<String>,
+            #[serde(default)]
+            watch: Vec<String>,
+        }
+
+        fn default_true() -> bool {
+            true
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct PropelConfig {
+            #[serde(default, rename = "check")]
+            checks: Vec<PropelCheck>,
+            #[serde(default)]
+            cache: CacheConfig,
+            #[serde(default)]
+            workspace: WorkspaceConfig,
+        }
+
+        let is_propel = config_path.file_name().map(|n| n == "propel.toml").unwrap_or(false);
+        let local_cfg: Config = if is_propel {
+            let propel_cfg: PropelConfig = toml::from_str(&data)
+                .map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
+            let mut stages = HashMap::new();
+            for c in propel_cfg.checks {
+                stages.insert(
+                    c.name.clone(),
+                    Stage {
+                        name: c.name,
+                        command: c.command,
+                        fix_command: c.fix_command,
+                        check: c.check,
+                        timeout: c.timeout_seconds,
+                        enabled: c.enabled,
+                        depends_on: c.depends_on,
+                        watch: c.watch,
+                    },
+                );
+            }
+            Config {
+                stages,
+                cache: propel_cfg.cache,
+                workspace: propel_cfg.workspace,
+                ..Default::default()
+            }
+        } else {
+            toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?
+        };
 
         // Merge stage map
         for (name, stage) in local_cfg.stages {
