@@ -1,0 +1,52 @@
+name: CI (GitHub Actions)
+
+on:
+  push:
+    branches: [main, develop, fix/*, feat/*, proposal/*]
+  pull_request:
+    branches: [main, develop, fix/*, feat/*, proposal/*]
+
+concurrency:
+  group: gha-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worry-free-crab:
+    name: Worry-Free-Crab
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git helper for private org repositories
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Worry-Free-Crab
+        run: nix run .
+
+  propel:
+    name: Propel Flake Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git helper for private org repositories
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Propel Flake Check
+        run: nix flake check

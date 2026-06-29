@@ -38,7 +38,4 @@ jobs:
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
       - name: Run local-ci via worry-free-crab
-        run: nix run github:lornu-ai/worry-free-crab
-
-
-
+        run: nix run .
