@@ -1,5 +1,6 @@
 use local_ci_core::{
-    CacheConfig, Config, DepsConfig, RemoteSSHDefaults, Stage, Workspace, WorkspaceConfig,
+    resolve_config_path, CacheConfig, Config, DepsConfig, RemoteSSHDefaults, Stage,
+    Workspace, WorkspaceConfig, LEGACY_CONFIG_WARNING,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -649,7 +650,7 @@ pub fn get_default_stages_for_type(
                     name: "test".to_string(),
                     command: Some(vec![
                         "echo".to_string(),
-                        "Please configure stages in .local-ci.toml".to_string(),
+                        "Please configure stages in wfc.toml".to_string(),
                     ]),
                     fix_command: None,
                     check: false,
@@ -1215,7 +1216,7 @@ skip_dirs = [".git", ".github", "scripts", ".claude", "node_modules", "target", 
 include_patterns = ["*"]
 
 [stages.placeholder]
-command = ["echo", "Configure stages in .local-ci.toml"]
+command = ["echo", "Configure stages in wfc.toml"]
 timeout = 60
 enabled = false
 
@@ -1247,18 +1248,11 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         ssh_defaults: RemoteSSHDefaults::default(),
     };
 
-    // Load local TOML (.wfc-ci.toml preferred, .local-ci.toml deprecated)
-    let wfc_config_path = root.join(".wfc-ci.toml");
-    let local_config_path = root.join(".local-ci.toml");
-    let (config_path, is_deprecated) = if wfc_config_path.exists() {
-        (wfc_config_path, false)
-    } else {
-        (local_config_path, true)
-    };
-
-    if config_path.exists() {
-        if is_deprecated {
-            eprintln!("Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml");
+    // Load local TOML (wfc.toml preferred, deprecated alternatives fallback)
+    if let Some(resolved) = resolve_config_path(root) {
+        let config_path = resolved.path;
+        if resolved.is_deprecated {
+            eprintln!("warning: {}", LEGACY_CONFIG_WARNING);
         }
         let data = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;

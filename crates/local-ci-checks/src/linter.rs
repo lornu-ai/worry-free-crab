@@ -1,4 +1,6 @@
-use local_ci_core::Config;
+use local_ci_core::{
+    resolve_config_path, Config, CONFIG_FILE, LEGACY_CONFIG_FILE, LEGACY_CONFIG_WARNING,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -27,43 +29,47 @@ pub struct LinterReport {
 pub fn lint_config_in_workspace<P: AsRef<Path>>(workspace_root: P) -> LinterReport {
     let mut report = LinterReport::default();
     let root = workspace_root.as_ref();
-    let wfc_config_path = root.join(".wfc-ci.toml");
-    let local_config_path = root.join(".local-ci.toml");
-    let (config_path, is_deprecated) = if wfc_config_path.exists() {
-        (wfc_config_path, false)
-    } else {
-        (local_config_path, true)
+    let resolved = match resolve_config_path(root) {
+        Some(resolved) => resolved,
+        None => {
+            report.warnings.push(LintWarning {
+                rule_id: "LC_CFG_MISSING".to_string(),
+                message: format!(
+                    "Configuration file ({}) does not exist in workspace root.",
+                    CONFIG_FILE
+                ),
+                severity: LintSeverity::Error,
+                line_number: None,
+                remediation: "Run `local-ci init` to generate a default configuration file."
+                    .to_string(),
+            });
+            report.has_errors = true;
+            return report;
+        }
     };
+    let config_path = resolved.path;
 
-    if !config_path.exists() {
-        report.warnings.push(LintWarning {
-            rule_id: "LC_CFG_MISSING".to_string(),
-            message: "Configuration file (.wfc-ci.toml) does not exist in workspace root.".to_string(),
-            severity: LintSeverity::Error,
-            line_number: None,
-            remediation: "Run `local-ci init` to generate a default configuration file."
-                .to_string(),
-        });
-        report.has_errors = true;
-        return report;
-    }
-
-    if is_deprecated {
+    if resolved.is_deprecated {
         report.warnings.push(LintWarning {
             rule_id: "LC_CFG_DEPRECATED".to_string(),
-            message: ".local-ci.toml is deprecated. Please rename it to .wfc-ci.toml.".to_string(),
+            message: format!("{}.", LEGACY_CONFIG_WARNING),
             severity: LintSeverity::Warning,
             line_number: None,
-            remediation: "Rename .local-ci.toml to .wfc-ci.toml.".to_string(),
+            remediation: format!("Rename {} to {}.", LEGACY_CONFIG_FILE, CONFIG_FILE),
         });
     }
+
+    let file_name = config_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(CONFIG_FILE);
 
     let content = match fs::read_to_string(&config_path) {
         Ok(c) => c,
         Err(e) => {
             report.warnings.push(LintWarning {
                 rule_id: "LC_CFG_READ_FAIL".to_string(),
-                message: format!("Failed to read .local-ci.toml: {}", e),
+                message: format!("Failed to read {}: {}", file_name, e),
                 severity: LintSeverity::Error,
                 line_number: None,
                 remediation: "Verify file read permissions and encoding.".to_string(),
@@ -82,7 +88,7 @@ pub fn lint_config_in_workspace<P: AsRef<Path>>(workspace_root: P) -> LinterRepo
         Err(e) => {
             report.warnings.push(LintWarning {
                 rule_id: "LC_CFG_PARSE_FAIL".to_string(),
-                message: format!("Failed to parse .local-ci.toml as valid TOML: {}", e),
+                message: format!("Failed to parse {} as valid TOML: {}", file_name, e),
                 severity: LintSeverity::Error,
                 line_number: None,
                 remediation: "Verify TOML structure matches the reference specification."
