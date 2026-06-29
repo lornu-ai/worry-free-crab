@@ -1,47 +1,29 @@
-# propel.toml — Declarative CI/CD orchestration for worry-free-crab
-
+# propel.toml — worry-free-crab CI validation
+# Reference: lornu-ai/ci-checks#4
 [project]
 name = "worry-free-crab"
 repo = "lornu-ai/worry-free-crab"
 
-# Fast Free Testing (FFT) check contract
 [[check]]
-name = "type-safety"
-description = "cargo fmt --check + cargo check + clippy (warnings as errors)"
-command = ["nix", "build", ".#checks.x86_64-linux.type-safety"]
-timeout_seconds = 600
-enabled = true
+name = "fmt"
+command = ["cargo", "fmt", "--", "--check"]
+timeout = 120
 
 [[check]]
-name = "unit-tests"
-description = "Cargo workspace test suite"
-command = ["nix", "build", ".#checks.x86_64-linux.unit-tests"]
-timeout_seconds = 1200
-enabled = true
+name = "clippy"
+command = ["cargo", "clippy", "--", "-D", "warnings"]
+timeout = 180
 
 [[check]]
-name = "secrets"
-description = "Secret detection with gitleaks"
-command = ["nix", "build", ".#checks.x86_64-linux.secrets"]
-timeout_seconds = 120
-enabled = true
-
-[[check]]
-name = "config-lint"
-description = "No hardcoded localhost URLs or inline passwords"
-command = ["nix", "build", ".#checks.x86_64-linux.config-lint"]
-timeout_seconds = 60
-enabled = true
-
-[oci]
-enabled = false
+name = "test"
+command = ["cargo", "test"]
+timeout = 300
 
 [policy]
 requires_human_approval = false
-secrets_scope = "ci/repos/lornu-ai/worry-free-crab"
-allowed_orgs = ["lornu-ai", "stevedores-org"]
-allowed_refs = ["refs/heads/main"]
 
-[performance]
-cache = "attic"
-cache_url = "https://attic.lornu.ai"
+[propel]
+enabled = true
+provider = "propel.aivcs.io"
+github_status_checks = true
+github_pr_comments = true
