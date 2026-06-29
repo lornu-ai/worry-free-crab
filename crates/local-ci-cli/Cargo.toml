@@ -25,3 +25,4 @@ local-ci-checks = { workspace = true }
 assert_cmd = "2.0"
 predicates = "3.0"
 tempfile = "3.8"
+
