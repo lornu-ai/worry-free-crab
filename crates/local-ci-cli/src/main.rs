@@ -166,10 +166,13 @@ fn main() {
         }
     }
 
-    // 2. Verify that .wfc-ci.toml or .local-ci.toml exists
+    // 2. Verify that propel.toml, .wfc-ci.toml or .local-ci.toml exists
+    let propel_config_path = cwd.join("propel.toml");
     let wfc_config_path = cwd.join(".wfc-ci.toml");
     let local_config_path = cwd.join(".local-ci.toml");
-    let (config_file_path, is_deprecated) = if wfc_config_path.exists() {
+    let (config_file_path, is_deprecated) = if propel_config_path.exists() {
+        (propel_config_path, false)
+    } else if wfc_config_path.exists() {
         (wfc_config_path, false)
     } else {
         (local_config_path, true)
@@ -177,7 +180,7 @@ fn main() {
 
     if !config_file_path.exists() {
         local_ci_report::errorf!(
-            "Error: Config file not found (.wfc-ci.toml).\n\
+            "Error: Config file not found (propel.toml or .wfc-ci.toml).\n\
              Please run `local-ci init` to initialize the project configuration.\n"
         );
         std::process::exit(1);

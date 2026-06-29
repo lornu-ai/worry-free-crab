@@ -1247,13 +1247,15 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         ssh_defaults: RemoteSSHDefaults::default(),
     };
 
-    // Load local TOML (.wfc-ci.toml preferred, .local-ci.toml deprecated)
+    let propel_config_path = root.join("propel.toml");
     let wfc_config_path = root.join(".wfc-ci.toml");
     let local_config_path = root.join(".local-ci.toml");
-    let (config_path, is_deprecated) = if wfc_config_path.exists() {
-        (wfc_config_path, false)
+    let (config_path, is_deprecated, is_propel) = if propel_config_path.exists() {
+        (propel_config_path, false, true)
+    } else if wfc_config_path.exists() {
+        (wfc_config_path, false, false)
     } else {
-        (local_config_path, true)
+        (local_config_path, true, false)
     };
 
     if config_path.exists() {
@@ -1262,8 +1264,62 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         }
         let data = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
-        let local_cfg: Config =
-            toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
+
+        if is_propel {
+            #[derive(Debug, Clone, Deserialize)]
+            struct PropelCheck {
+                name: String,
+                command: String,
+                #[serde(alias = "timeout_s", alias = "timeout_seconds")]
+                timeout_s: Option<i64>,
+                #[serde(default)]
+                required: bool,
+            }
+            #[derive(Debug, Clone, Deserialize)]
+            struct PropelConfig {
+                #[serde(default)]
+                check: Vec<PropelCheck>,
+                cache: Option<CacheConfig>,
+                dependencies: Option<DepsConfig>,
+                workspace: Option<WorkspaceConfig>,
+            }
+
+            let propel_cfg: PropelConfig = toml::from_str(&data)
+                .map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
+
+            cfg.stages.clear();
+
+            for check in propel_cfg.check {
+                let cmd_parts: Vec<String> = check.command.split_whitespace().map(String::from).collect();
+                let stage = Stage {
+                    name: check.name.clone(),
+                    command: Some(cmd_parts),
+                    fix_command: None,
+                    check: check.required,
+                    timeout: check.timeout_s.unwrap_or(120),
+                    enabled: true,
+                    depends_on: vec![],
+                    watch: vec![],
+                };
+                cfg.stages.insert(check.name, stage);
+            }
+            if let Some(cache) = propel_cfg.cache {
+                if !cache.skip_dirs.is_empty() {
+                    cfg.cache.skip_dirs = cache.skip_dirs;
+                }
+                if !cache.include_patterns.is_empty() {
+                    cfg.cache.include_patterns = cache.include_patterns;
+                }
+            }
+            if let Some(dependencies) = propel_cfg.dependencies {
+                cfg.dependencies = dependencies;
+            }
+            if let Some(workspace) = propel_cfg.workspace {
+                cfg.workspace = workspace;
+            }
+        } else {
+            let local_cfg: Config =
+                toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
 
         // Merge stage map
         for (name, stage) in local_cfg.stages {
@@ -1319,6 +1375,7 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
             cfg.dependencies.optional = local_cfg.dependencies.optional;
         }
     }
+}
 
     if remote {
         let remote_path = root.join(".local-ci-remote.toml");

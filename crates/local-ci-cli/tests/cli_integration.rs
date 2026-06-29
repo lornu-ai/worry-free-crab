@@ -180,3 +180,37 @@ timeout = 10
         .failure()
         .stderr(predicate::str::contains("unknown").or(predicate::str::contains("not found")));
 }
+
+#[test]
+fn test_cli_propel_config() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let config_path = temp_dir.path().join("propel.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+[project]
+name = "test-proj"
+
+[[check]]
+name = "propel-fmt"
+command = "echo fmt"
+timeout_s = 60
+required = true
+
+[[check]]
+name = "propel-test"
+command = "echo test"
+timeout_s = 120
+required = true
+"#,
+    )
+    .expect("failed to write config");
+
+    let mut cmd = Command::cargo_bin("local-ci").expect("failed to find binary");
+    cmd.current_dir(temp_dir.path());
+    cmd.arg("--list");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("propel-fmt").and(predicate::str::contains("propel-test")));
+}
