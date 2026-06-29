@@ -1,5 +1,58 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Primary config filename. Preferred over the legacy name.
+pub const CONFIG_FILE: &str = "wfc.toml";
+/// Deprecated legacy config filename, kept as a fallback for backward compatibility.
+pub const LEGACY_CONFIG_FILE: &str = ".wfc-ci.toml";
+/// Another legacy config filename, kept as fallback.
+pub const DEPRECATED_LOCAL_CI_FILE: &str = ".local-ci.toml";
+
+/// Human-readable deprecation warning emitted when the legacy config file is used.
+pub const LEGACY_CONFIG_WARNING: &str =
+    "config file is deprecated; rename it to wfc.toml";
+
+/// Outcome of resolving which config file to use in a repo root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedConfig {
+    /// Absolute path to the config file that should be loaded.
+    pub path: PathBuf,
+    /// True when the resolved file is deprecated.
+    pub is_deprecated: bool,
+}
+
+/// Resolve which config file to use in `root`.
+///
+/// Resolution order:
+/// 1. `wfc.toml` (preferred) if it exists.
+/// 2. `.wfc-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
+/// 3. `.local-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
+/// 4. `None` when neither exists.
+pub fn resolve_config_path(root: &Path) -> Option<ResolvedConfig> {
+    let primary = root.join(CONFIG_FILE);
+    if primary.exists() {
+        return Some(ResolvedConfig {
+            path: primary,
+            is_deprecated: false,
+        });
+    }
+    let legacy = root.join(LEGACY_CONFIG_FILE);
+    if legacy.exists() {
+        return Some(ResolvedConfig {
+            path: legacy,
+            is_deprecated: true,
+        });
+    }
+    let legacy_local = root.join(DEPRECATED_LOCAL_CI_FILE);
+    if legacy_local.exists() {
+        return Some(ResolvedConfig {
+            path: legacy_local,
+            is_deprecated: true,
+        });
+    }
+    None
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoteSSHDefaults {
@@ -335,5 +388,54 @@ mod tests {
         assert!(matches_patterns("lib.rs", &patterns));
         assert!(matches_patterns("Cargo.toml", &patterns));
         assert!(!matches_patterns("lib.go", &patterns));
+    }
+
+    fn tmp_root() -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        let unique = format!(
+            "wfc-cfg-test-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        dir.push(unique);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolve_prefers_wfc_over_legacy() {
+        let root = tmp_root();
+        std::fs::write(root.join(CONFIG_FILE), "").unwrap();
+        std::fs::write(root.join(LEGACY_CONFIG_FILE), "").unwrap();
+
+        let resolved = resolve_config_path(&root).expect("config should resolve");
+        assert_eq!(resolved.path, root.join(CONFIG_FILE));
+        assert!(!resolved.is_deprecated);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn resolve_falls_back_to_legacy_with_deprecation() {
+        let root = tmp_root();
+        std::fs::write(root.join(LEGACY_CONFIG_FILE), "").unwrap();
+
+        let resolved = resolve_config_path(&root).expect("legacy config should resolve");
+        assert_eq!(resolved.path, root.join(LEGACY_CONFIG_FILE));
+        assert!(resolved.is_deprecated);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn resolve_returns_none_when_no_config() {
+        let root = tmp_root();
+
+        assert!(resolve_config_path(&root).is_none());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

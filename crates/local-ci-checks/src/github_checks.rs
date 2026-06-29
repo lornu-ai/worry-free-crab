@@ -117,12 +117,14 @@ pub fn map_vulnerabilities_to_annotations(report: &VulnerabilityReport) -> Vec<C
 pub fn map_linter_to_annotations(report: &LinterReport) -> Vec<CheckAnnotation> {
     let mut annotations = Vec::new();
 
-    let path = if std::path::Path::new(".wfc-ci.toml").exists() {
-        ".wfc-ci.toml".to_string()
-    } else if std::path::Path::new(".local-ci.toml").exists() {
-        ".local-ci.toml".to_string()
-    } else {
-        ".wfc-ci.toml".to_string()
+    let path = match local_ci_core::resolve_config_path(std::path::Path::new(".")) {
+        Some(resolved) => resolved
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(local_ci_core::CONFIG_FILE)
+            .to_string(),
+        None => local_ci_core::CONFIG_FILE.to_string(),
     };
 
     for warn in &report.warnings {
