@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Primary config filename. Preferred over the legacy name.
+/// Primary unified config filename.
+pub const PROPEL_CONFIG_FILE: &str = "propel.toml";
+/// Legacy config filename.
 pub const CONFIG_FILE: &str = "wfc.toml";
 /// Deprecated legacy config filename, kept as a fallback for backward compatibility.
 pub const LEGACY_CONFIG_FILE: &str = ".wfc-ci.toml";
@@ -11,7 +13,7 @@ pub const DEPRECATED_LOCAL_CI_FILE: &str = ".local-ci.toml";
 
 /// Human-readable deprecation warning emitted when the legacy config file is used.
 pub const LEGACY_CONFIG_WARNING: &str =
-    "config file is deprecated; rename it to wfc.toml";
+    "config file is deprecated; rename it to propel.toml or wfc.toml";
 
 /// Outcome of resolving which config file to use in a repo root.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,11 +27,18 @@ pub struct ResolvedConfig {
 /// Resolve which config file to use in `root`.
 ///
 /// Resolution order:
-/// 1. `wfc.toml` (preferred) if it exists.
-/// 2. `.wfc-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
-/// 3. `.local-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
-/// 4. `None` when neither exists.
+/// 1. `propel.toml` (preferred unified configuration) if it exists.
+/// 2. `wfc.toml` (legacy) if it exists.
+/// 3. `.wfc-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
+/// 4. `.local-ci.toml` (deprecated) if it exists; `is_deprecated` is set.
 pub fn resolve_config_path(root: &Path) -> Option<ResolvedConfig> {
+    let propel = root.join(PROPEL_CONFIG_FILE);
+    if propel.exists() {
+        return Some(ResolvedConfig {
+            path: propel,
+            is_deprecated: false,
+        });
+    }
     let primary = root.join(CONFIG_FILE);
     if primary.exists() {
         return Some(ResolvedConfig {
@@ -390,11 +399,15 @@ mod tests {
         assert!(!matches_patterns("lib.go", &patterns));
     }
 
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
     fn tmp_root() -> PathBuf {
         let mut dir = std::env::temp_dir();
         let unique = format!(
-            "wfc-cfg-test-{}-{:?}",
+            "wfc-cfg-test-{}-{}-{}",
             std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -403,6 +416,19 @@ mod tests {
         dir.push(unique);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn resolve_prefers_propel_over_wfc() {
+        let root = tmp_root();
+        std::fs::write(root.join(PROPEL_CONFIG_FILE), "").unwrap();
+        std::fs::write(root.join(CONFIG_FILE), "").unwrap();
+
+        let resolved = resolve_config_path(&root).expect("config should resolve");
+        assert_eq!(resolved.path, root.join(PROPEL_CONFIG_FILE));
+        assert!(!resolved.is_deprecated);
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -422,7 +448,6 @@ mod tests {
     fn resolve_falls_back_to_legacy_with_deprecation() {
         let root = tmp_root();
         std::fs::write(root.join(LEGACY_CONFIG_FILE), "").unwrap();
-
         let resolved = resolve_config_path(&root).expect("legacy config should resolve");
         assert_eq!(resolved.path, root.join(LEGACY_CONFIG_FILE));
         assert!(resolved.is_deprecated);
