@@ -184,7 +184,9 @@ fn main() {
     }
 
     if is_deprecated {
-        local_ci_report::warnf!("Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml.\n");
+        local_ci_report::warnf!(
+            "Warning: .local-ci.toml is deprecated. Please rename it to .wfc-ci.toml.\n"
+        );
     }
 
     let need_remote_cfg =

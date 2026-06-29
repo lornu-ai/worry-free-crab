@@ -1262,8 +1262,8 @@ pub fn load_config(root: &Path, remote: bool) -> Result<Config, String> {
         }
         let data = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
-        let local_cfg: Config =
-            toml::from_str(&data).map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
+        let local_cfg: Config = toml::from_str(&data)
+            .map_err(|e| format!("Failed to parse {}: {}", config_path.display(), e))?;
 
         // Merge stage map
         for (name, stage) in local_cfg.stages {

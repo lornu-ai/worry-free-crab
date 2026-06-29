@@ -38,7 +38,8 @@ pub fn lint_config_in_workspace<P: AsRef<Path>>(workspace_root: P) -> LinterRepo
     if !config_path.exists() {
         report.warnings.push(LintWarning {
             rule_id: "LC_CFG_MISSING".to_string(),
-            message: "Configuration file (.wfc-ci.toml) does not exist in workspace root.".to_string(),
+            message: "Configuration file (.wfc-ci.toml) does not exist in workspace root."
+                .to_string(),
             severity: LintSeverity::Error,
             line_number: None,
             remediation: "Run `local-ci init` to generate a default configuration file."

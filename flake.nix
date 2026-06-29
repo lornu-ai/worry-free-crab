@@ -71,6 +71,7 @@
           # Unit tests: the full workspace test suite, against vendored deps.
           unit-tests = local-ci.overrideAttrs (old: {
             pname = "check-unit-tests";
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ rustToolchain ];
             buildPhase = ''
               runHook preBuild
               cargo test --workspace
