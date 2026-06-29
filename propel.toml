@@ -6,32 +6,43 @@ owner = "lornu-ai"
 name = "worry-free-crab"
 description = "Lightweight local CI runner (Rust rewrite)"
 
-# Hermetic checks via Nix flake
+# Fast Free Testing (FFT) check contract — replaces the legacy local-ci stages.
+# Hermetic checks via Nix flake; names match flake.nix `checks` and FFT's
+# orchestrator so the NixOS runner can dispatch each one.
 [[check]]
-name = "fmt"
-description = "Rust code formatting"
-command = "nix build .#checks.x86_64-linux.fmt"
-timeout_seconds = 120
-required = true
-
-[[check]]
-name = "clippy"
-description = "Clippy linting with warnings-as-errors"
-command = "nix build .#checks.x86_64-linux.clippy"
+name = "type-safety"
+description = "cargo fmt --check + cargo check + clippy (warnings as errors)"
+command = "nix build .#checks.x86_64-linux.type-safety"
 timeout_seconds = 600
 required = true
 
 [[check]]
-name = "test"
-description = "Cargo test suite"
-command = "nix build .#checks.x86_64-linux.test"
+name = "unit-tests"
+description = "Cargo workspace test suite"
+command = "nix build .#checks.x86_64-linux.unit-tests"
 timeout_seconds = 1200
+required = true
+
+[[check]]
+name = "secrets"
+description = "Secret detection with gitleaks"
+command = "nix build .#checks.x86_64-linux.secrets"
+timeout_seconds = 120
+required = true
+
+[[check]]
+name = "config-lint"
+description = "No hardcoded localhost URLs or inline passwords"
+command = "nix build .#checks.x86_64-linux.config-lint"
+timeout_seconds = 60
 required = true
 
 [oci]
 enabled = false
 
 [policy]
+# We DO NOT require human approvals to merge any PR.
+# Instead, agent PR approval is required before it can merge.
 requires_human_approval = false
 secrets_scope = "ci/repos/lornu-ai/worry-free-crab"
 allowed_orgs = ["lornu-ai", "stevedores-org"]
