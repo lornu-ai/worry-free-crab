@@ -32,8 +32,19 @@
             lockFile = ./Cargo.lock;
           };
         };
+
+        # Alias for wfc-gha.yml workflow compatibility (expects worry-free-crab binary name)
+        worry-free-crab = pkgs.symlinkJoin {
+          name = "worry-free-crab";
+          paths = [ local-ci ];
+          postBuild = ''
+            mkdir -p $out/bin
+            ln -sf ${local-ci}/bin/local-ci $out/bin/worry-free-crab
+          '';
+        };
       in {
         packages.local-ci = local-ci;
+        packages.worry-free-crab = worry-free-crab;
         packages.default = local-ci;
 
         devShells.default = pkgs.mkShell {
