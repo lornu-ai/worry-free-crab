@@ -52,6 +52,10 @@
             rustToolchain
             pkgs.git
             local-ci
+            # CI linting tools used by ci-checks propel.toml via `nix develop --command`
+            pkgs.actionlint
+            pkgs.gitleaks
+            pkgs.yamllint
           ];
         };
 
